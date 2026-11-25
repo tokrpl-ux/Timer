@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timer interwałowy</title>
+<style>
+  :root{
+    --bg:#f4f4f2; --card:#ffffff; --text:#1d1d1b; --muted:#6b6b66; --line:#dcdcd6;
+    --work:#1f9d55; --rest:#d97706; --prep:#3b6fd8; --done:#6b6b66;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#141413; --card:#1f1f1d; --text:#f1f1ee; --muted:#9a9a94; --line:#33332f;
+      --work:#34c475; --rest:#f59e0b; --prep:#6b95f0; --done:#9a9a94; }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    display:flex;align-items:center;justify-content:center;
+    padding:16px;transition:background .3s;
+  }
+  body.phase-work{--accent:var(--work)}
+  body.phase-rest{--accent:var(--rest)}
+  body.phase-prep{--accent:var(--prep)}
+  body.phase-idle,body.phase-done{--accent:var(--done)}
+
+  .wrap{width:100%;max-width:640px}
+  .card{
+    background:var(--card);border:1px solid var(--line);
+    border-radius:20px;padding:24px;text-align:center;
+  }
+  .phase{
+    font-size:clamp(20px,4.5vw,30px);font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--accent);
+  }
+  .time{
+    font-size:clamp(84px,24vw,156px);font-weight:700;line-height:1;
+    margin:6px 0;font-variant-numeric:tabular-nums;color:var(--accent);
+  }
+  .round{color:var(--muted);font-size:16px;min-height:24px}
+  .next-up{color:var(--muted);font-size:13px;min-height:20px;margin-top:4px}
+
+  .bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:18px 0 22px}
+  .bar>div{height:100%;width:0;background:var(--accent);transition:width .1s linear}
+
+  .btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  button{
+    font:inherit;font-size:16px;font-weight:600;padding:11px 22px;
+    border-radius:12px;border:1px solid var(--line);
+    background:var(--card);color:var(--text);cursor:pointer;
+  }
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.small{font-size:13px;padding:7px 11px;border-radius:9px}
+  button.icon-btn{padding:6px 10px;font-size:14px;line-height:1}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--prep);outline-offset:2px}
+
+  .settings{
+    margin-top:16px;background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:16px;
+  }
+  .settings-top{
+    display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px;
+  }
+  @media (max-width:480px){
+    .settings-top{grid-template-columns:1fr}
+  }
+  .settings label{display:flex;flex-direction:column;gap:5px;text-align:left;font-size:13px;color:var(--muted)}
+  .settings input,.settings select{
+    font:inherit;font-size:15px;padding:8px 10px;border-radius:9px;
+    border:1px solid var(--line);background:var(--bg);color:var(--text);width:100%;
+  }
+
+  .seq-header{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:8px;flex-wrap:wrap;margin:10px 0 8px;
+  }
+  .seq-title{font-size:14px;font-weight:700;color:var(--text)}
+  .seq-actions{display:flex;gap:6px;flex-wrap:wrap}
+
+  .seq-list{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow:auto;padding-right:2px}
+  .step-row{
+    display:grid;
+    grid-template-columns:24px minmax(96px,.9fr) minmax(110px,1.4fr) minmax(110px,1fr) auto;
+    grid-template-areas:"idx type label dur ctrl";
+    gap:8px;align-items:center;
+    background:var(--bg);border:1px solid var(--line);
+    border-radius:11px;padding:8px 10px;
+  }
+  .step-row.active-step{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .step-row.row-work{border-left:4px solid var(--work)}
+  .step-row.row-rest{border-left:4px solid var(--rest)}
+  .step-row.row-prep{border-left:4px solid var(--prep)}
+  .step-idx{grid-area:idx}
+  .step-type{grid-area:type}
+  .step-label{grid-area:label}
+  .dur-wrap{grid-area:dur}
+  .step-controls{grid-area:ctrl}
+  @media (max-width:600px){
+    .step-row{
+      grid-template-columns:24px 1fr 1fr;
+      grid-template-areas:"idx type dur" ". label label" ". ctrl ctrl";
+      gap:6px;
+    }
+    .step-controls{justify-content:flex-end}
+  }
+
+  .builder{
+    background:var(--bg);border:1px dashed var(--line);border-radius:12px;
+    padding:10px 12px;margin:6px 0 12px;
+  }
+  .builder-title{font-size:13px;font-weight:700;margin-bottom:8px;text-align:left}
+  .builder-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+  .builder-row label{flex:1 1 90px}
+  .builder-row label.b-name{flex:2 1 160px}
+  .builder-row .b-add{flex:1 1 150px;align-self:stretch;font-size:15px;padding:9px 14px}
+  .builder .settings-note{margin-top:6px;font-size:12px;color:var(--muted);text-align:left;min-height:16px}
+  .exercise{font-size:clamp(16px,4vw,22px);font-weight:600;min-height:28px;margin-top:2px}
+  .step-idx{font-size:13px;font-weight:700;color:var(--muted);text-align:center}
+  .dur-wrap{display:flex;align-items:center;gap:4px}
+  .dur-wrap input{text-align:right;padding:7px 8px}
+  .dur-wrap select{width:auto;padding:7px 6px;font-size:13px}
+  .step-controls{display:flex;gap:4px;align-items:center}
+
+  .opts{
+    margin-top:14px;padding-top:12px;border-top:1px solid var(--line);
+    display:flex;gap:16px;flex-wrap:wrap;align-items:center;justify-content:space-between;
+    font-size:13px;color:var(--muted);
+  }
+  .opts-left{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+  .opts label{flex-direction:row;align-items:center;gap:7px;cursor:pointer}
+  .opts input[type="checkbox"]{width:auto;margin:0}
+
+  .seq-empty{font-size:14px;color:var(--muted);text-align:center;padding:18px 10px;
+    border:1px dashed var(--line);border-radius:11px}
+  .hint{margin-top:12px;font-size:13px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body class="phase-idle">
+<div class="wrap">
+  <div class="card">
+    <div class="phase" id="phase">Gotowy</div>
+    <div class="exercise" id="exercise">&nbsp;</div>
+    <div class="time" id="time">00:40</div>
+    <div class="round" id="round">&nbsp;</div>
+    <div class="next-up" id="nextUp">&nbsp;</div>
+    <div class="bar"><div id="bar"></div></div>
+    <div class="btns">
+      <button class="primary" id="startBtn">Start</button>
+      <button id="skipBtn" disabled>Następny</button>
+      <button id="resetBtn">Reset</button>
+      <button id="clearBtn" title="Usuń wszystkie kroki treningu">Wyczyść</button>
+    </div>
+  </div>
+
+  <div class="settings">
+    <div class="settings-top">
+      <label>Powtórzenia całości (0 = bez końca)
+        <input type="number" id="repeats" min="0" value="3">
+      </label>
+      <label>Odliczanie na start (s)
+        <input type="number" id="prep" min="0" value="5">
+      </label>
+    </div>
+
+    <div class="builder">
+      <div class="builder-title">Blok do dodawania (praca + przerwa)</div>
+      <div class="builder-row">
+        <label class="b-name">Ćwiczenie (opcjonalnie)
+          <input type="text" id="bLabel" maxlength="60" placeholder="np. Pompki">
+        </label>
+        <label>Praca (s)
+          <input type="number" id="bWork" min="1" value="45">
+        </label>
+        <label>Przerwa (s)
+          <input type="number" id="bRest" min="0" value="30">
+        </label>
+        <button type="button" class="primary b-add" id="addBlockBtn">+ Dodaj blok</button>
+      </div>
+      <div class="settings-note" id="blockNote">Każde kliknięcie dodaje jeden blok na koniec listy. Przerwa 0 = sama praca.</div>
+    </div>
+
+    <div class="seq-header">
+      <span class="seq-title">Sekwencja interwałów (<span id="stepCount">0</span>)</span>
+      <div class="seq-actions">
+        <button type="button" class="small" id="addWorkBtn">+ Praca</button>
+        <button type="button" class="small" id="addRestBtn">+ Przerwa</button>
+        <button type="button" class="small" id="presetBtn">Przykład (40/20… ×3)</button>
+      </div>
+    </div>
+
+    <div class="seq-list" id="seqList"></div>
+
+    <div class="opts">
+      <div class="opts-left">
+        <label><input type="checkbox" id="sound" checked> Dźwięk</label>
+        <label><input type="checkbox" id="countdown" checked> Pikanie przez ostatnie 3 s</label>
+        <label><input type="checkbox" id="voice" checked> Głos (EN): 40, 30, 20, 10, 5…1</label>
+      </div>
+      <button type="button" class="small" id="clearStorageBtn">Domyślne</button>
+    </div>
+  </div>
+
+  <div class="hint">Spacja: start/pauza · N: następny interwał · R: reset · Zmiany zapisują się automatycznie</div>
+</div>
+
+<script>
+const STORAGE_KEY = 'interval_timer_seq_v1';
+
+const DEFAULT_STEPS = [
+  { id: uid(), type: 'work', sec: 40 },
+  { id: uid(), type: 'rest', sec: 20 },
+  { id: uid(), type: 'work', sec: 40 },
+  { id: uid(), type: 'rest', sec: 20 },
+  { id: uid(), type: 'work', sec: 30 },
+  { id: uid(), type: 'rest', sec: 20 },
+  { id: uid(), type: 'work', sec: 60 },
+  { id: uid(), type: 'rest', sec: 20 }
+];
+
+const DEFAULT_CONFIG = {
+  repeats: 3,
+  prep: 5,
+  sound: true,
+  countdown: true,
+  voice: true,
+  builder: { label: '', work: 45, rest: 30 },
+  steps: DEFAULT_STEPS
+};
+
+function cleanLabel(v){
+  return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+}
+function sanitizeBuilder(b){
+  return {
+    label: cleanLabel(b?.label),
+    work: Math.max(1, Math.min(86400, parseInt(b?.work, 10) || 45)),
+    rest: Math.max(0, Math.min(86400, Number.isFinite(parseInt(b?.rest, 10)) ? parseInt(b.rest, 10) : 30))
+  };
+}
+
+function uid(){
+  return Math.random().toString(36).slice(2, 9);
+}
+
+const $ = id => document.getElementById(id);
+const els = {
+  phase: $('phase'), exercise: $('exercise'), time: $('time'), round: $('round'), nextUp: $('nextUp'), bar: $('bar'),
+  start: $('startBtn'), skip: $('skipBtn'), reset: $('resetBtn'), clear: $('clearBtn'),
+  repeats: $('repeats'), prep: $('prep'), seqList: $('seqList'), stepCount: $('stepCount'),
+  addWork: $('addWorkBtn'), addRest: $('addRestBtn'),
+  bLabel: $('bLabel'), bWork: $('bWork'), bRest: $('bRest'), addBlock: $('addBlockBtn'), blockNote: $('blockNote'),
+  preset: $('presetBtn'), clearStorage: $('clearStorageBtn'),
+  sound: $('sound'), countdown: $('countdown'), voice: $('voice')
+};
+
+const LABEL = { idle:'Gotowy', prep:'Przygotuj się', work:'Praca', rest:'Przerwa', done:'Koniec!' };
+const TYPE_NAME = { work:'Praca', rest:'Przerwa', prep:'Przygotowanie' };
+
+let config = loadConfig();
+let state = 'idle'; // 'idle' | 'prep' | 'work' | 'rest' | 'done'
+let running = false;
+let repeatIdx = 0; // 1..repeats (lub 1..Infinity)
+let stepIdx = 0;   // 0..steps.length-1
+let phaseLen = 0;
+let remainingMs = 0;
+let endAt = 0;
+let lastSec = null;
+let raf = null;
+let wakeLock = null;
+let initialPrep = false; // odliczanie na start (nie mylić z krokiem typu „Przygotowanie” w sekwencji)
+
+function sanitizeSteps(raw){
+  if(!Array.isArray(raw)) return cloneSteps(DEFAULT_STEPS);
+  const cleaned = raw
+    .map(item => ({
+      id: typeof item?.id === 'string' && item.id ? item.id : uid(),
+      type: ['work','rest','prep'].includes(item?.type) ? item.type : 'work',
+      sec: Math.max(1, Math.min(86400, parseInt(item?.sec, 10) || 1)),
+      label: cleanLabel(item?.label)
+    }));
+  return cleaned;
+}
+
+function cloneSteps(list){
+  return list.map(s => ({ id: uid(), type: s.type, sec: s.sec, label: s.label || '' }));
+}
+
+function loadConfig(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return { ...DEFAULT_CONFIG, steps: cloneSteps(DEFAULT_STEPS) };
+    const parsed = JSON.parse(raw);
+    return {
+      repeats: Math.max(0, parseInt(parsed.repeats, 10) || 0),
+      prep: Math.max(0, parseInt(parsed.prep, 10) || 0),
+      sound: parsed.sound !== undefined ? Boolean(parsed.sound) : true,
+      countdown: parsed.countdown !== undefined ? Boolean(parsed.countdown) : true,
+      voice: parsed.voice !== undefined ? Boolean(parsed.voice) : true,
+      builder: sanitizeBuilder(parsed.builder),
+      steps: sanitizeSteps(parsed.steps)
+    };
+  }catch(e){
+    return { ...DEFAULT_CONFIG, steps: cloneSteps(DEFAULT_STEPS) };
+  }
+}
+
+function saveConfig(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  }catch(e){}
+}
+
+function syncInputsFromConfig(){
+  els.repeats.value = config.repeats;
+  els.prep.value = config.prep;
+  els.sound.checked = config.sound;
+  els.countdown.checked = config.countdown;
+  els.voice.checked = config.voice;
+  els.bLabel.value = config.builder.label;
+  els.bWork.value = config.builder.work;
+  els.bRest.value = config.builder.rest;
+  renderStepsList();
+}
+
+// --- dźwięk ---
+let ctx = null;
+function beep(freq=880, dur=0.15, vol=0.3){
+  if(!config.sound) return;
+  ctx = ctx || new (window.AudioContext||window.webkitAudioContext)();
+  const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime;
+  o.type='sine'; o.frequency.value=freq; o.connect(g); g.connect(ctx.destination);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.start(t); o.stop(t+dur);
+}
+const phaseSound = p => {
+  if(p==='work'){ beep(1200,.35,.4); }
+  else if(p==='rest'){ beep(600,.45,.4); }
+  else if(p==='prep'){ beep(800,.2,.25); }
+  else if(p==='done'){ beep(900,.2); setTimeout(()=>beep(1100,.2),220); setTimeout(()=>beep(1400,.5),440); }
+};
+
+// --- głos (angielski) ---
+const synth = window.speechSynthesis || null;
+let enVoice = null;
+let plVoice = null; // nazwy ćwiczeń czytane po polsku, jeśli telefon ma polski głos
+function pickVoice(){
+  if(!synth) return;
+  const voices = synth.getVoices();
+  plVoice =
+    voices.find(v => /^pl/i.test(v.lang) && v.localService) ||
+    voices.find(v => /^pl/i.test(v.lang)) || null;
+  enVoice =
+    voices.find(v => /^en[-_]US/i.test(v.lang) && v.localService) ||
+    voices.find(v => /^en[-_]US/i.test(v.lang)) ||
+    voices.find(v => /^en[-_]GB/i.test(v.lang)) ||
+    voices.find(v => /^en/i.test(v.lang)) || null;
+}
+if(synth){
+  pickVoice();
+  if('onvoiceschanged' in synth) synth.onvoiceschanged = pickVoice;
+}
+function say(text){
+  if(!synth || !config.voice) return;
+  synth.cancel(); // bez kolejki: liczba ma paść dokładnie teraz
+  labelSpeaking = false;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = enVoice ? enVoice.lang : 'en-US';
+  if(enVoice) u.voice = enVoice;
+  u.rate = 1.1;
+  u.volume = 1;
+  synth.speak(u);
+}
+
+// Nazwa ćwiczenia: wypowiadana na początku interwału, po sygnale dźwiękowym
+let labelSpeaking = false;
+let labelTimer = null;
+function sayLabel(text){
+  clearTimeout(labelTimer);
+  if(!synth || !config.voice || !text) return;
+  labelTimer = setTimeout(() => {
+    if(!running) return;
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    if(plVoice){ u.voice = plVoice; u.lang = plVoice.lang; } else { u.lang = 'pl-PL'; }
+    u.rate = 1;
+    u.volume = 1;
+    labelSpeaking = true;
+    u.onend = u.onerror = () => { labelSpeaking = false; };
+    synth.speak(u);
+  }, config.sound ? 400 : 0);
+}
+// iOS/Safari: synteza mowy musi zostać „odblokowana” gestem użytkownika
+function unlockVoice(){
+  if(!synth || !config.voice) return;
+  const u = new SpeechSynthesisUtterance(' ');
+  u.volume = 0;
+  synth.speak(u);
+}
+// Co ma zostać powiedziane przy danej liczbie pozostałych sekund
+function voiceCue(s){
+  if(s >= 60 && s % 60 === 0){ const m = s / 60; return m === 1 ? 'one minute' : m + ' minutes'; }
+  if(s < 60 && s % 10 === 0) return String(s);
+  if(s >= 1 && s <= 5) return String(s);
+  return null;
+}
+
+// --- formatowanie ---
+const fmt = ms => {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(s / 60);
+  return String(m).padStart(2,'0') + ':' + String(s % 60).padStart(2,'0');
+};
+
+function fmtShortSec(sec){
+  if(sec >= 60 && sec % 60 === 0) return (sec / 60) + ' min';
+  return sec + ' s';
+}
+
+// --- sterowanie fazami ---
+function setPhase(type, seconds, label = ''){
+  state = type;
+  phaseLen = Math.max(1, seconds) * 1000;
+  remainingMs = phaseLen;
+  endAt = performance.now() + phaseLen;
+  lastSec = null;
+  document.body.className = 'phase-' + type;
+  phaseSound(type);
+  if(synth){ clearTimeout(labelTimer); synth.cancel(); labelSpeaking = false; }
+  sayLabel(label);
+  highlightActiveStep();
+  render();
+}
+
+function advanceStep(){
+  if(!config.steps.length){ finish(); return; }
+
+  if(initialPrep || state === 'idle'){
+    initialPrep = false;
+    repeatIdx = 1;
+    stepIdx = 0;
+    const first = config.steps[0];
+    setPhase(first.type, first.sec, first.label);
+    return;
+  }
+
+  if(stepIdx + 1 < config.steps.length){
+    stepIdx++;
+    const nextStep = config.steps[stepIdx];
+    setPhase(nextStep.type, nextStep.sec, nextStep.label);
+    return;
+  }
+
+  // Koniec bieżącego przejścia całej sekwencji
+  if(config.repeats > 0 && repeatIdx >= config.repeats){
+    finish();
+    return;
+  }
+
+  repeatIdx++;
+  stepIdx = 0;
+  const first = config.steps[0];
+  setPhase(first.type, first.sec, first.label);
+}
+
+function finish(){
+  running = false;
+  initialPrep = false;
+  state = 'done';
+  remainingMs = 0;
+  document.body.className = 'phase-done';
+  phaseSound('done');
+  releaseWake();
+  lockConfigUI(false);
+  highlightActiveStep();
+  render();
+}
+
+function tick(){
+  if(!running) return;
+  remainingMs = endAt - performance.now();
+  if(remainingMs <= 0){
+    advanceStep();
+  } else {
+    const s = Math.ceil(remainingMs / 1000);
+    if(s !== lastSec){
+      if(lastSec !== null){
+        const voiceOn = config.voice && synth;
+        const cue = voiceOn ? voiceCue(s) : null;
+        // nie przerywaj nazwy ćwiczenia, chyba że to końcowe 5…1
+        if(cue && labelSpeaking && s > 5) { /* pomiń */ }
+        else if(cue) say(cue);
+        // przy włączonym głosie pikanie 3-2-1 jest pomijane, żeby nie zagłuszało liczb
+        else if(!voiceOn && s <= 3 && s >= 1 && config.countdown) beep(880, .12, .25);
+      }
+      lastSec = s;
+    }
+  }
+  render();
+  raf = requestAnimationFrame(tick);
+}
+
+function stepDesc(st){
+  return TYPE_NAME[st.type] + (st.label ? ' – ' + st.label : '') + ' (' + fmtShortSec(st.sec) + ')';
+}
+
+function getNextDescription(){
+  if(!config.steps.length) return '';
+  if(initialPrep){
+    return 'Dalej: ' + stepDesc(config.steps[0]);
+  }
+  if(state === 'work' || state === 'rest' || state === 'prep'){
+    if(stepIdx + 1 < config.steps.length){
+      return 'Dalej: ' + stepDesc(config.steps[stepIdx + 1]);
+    }
+    if(config.repeats === 0 || repeatIdx < config.repeats){
+      return `Dalej (powt. ${repeatIdx + 1}): ` + stepDesc(config.steps[0]);
+    }
+    return 'Dalej: Koniec treningu';
+  }
+  return '';
+}
+
+function render(){
+  const pausedActive = !running && (state === 'work' || state === 'rest' || state === 'prep');
+  els.phase.textContent = LABEL[state] + (pausedActive ? ' (pauza)' : '');
+
+  if(state === 'idle'){
+    const firstSec = config.prep > 0 ? config.prep : (config.steps[0]?.sec || 0);
+    els.time.textContent = fmt(firstSec * 1000);
+  } else {
+    els.time.textContent = fmt(remainingMs);
+  }
+
+  const curStep = (!initialPrep && (state === 'work' || state === 'rest' || state === 'prep')) ? config.steps[stepIdx] : null;
+  els.exercise.textContent = curStep && curStep.label ? curStep.label : '\u00a0';
+
+  if(!initialPrep && (state === 'work' || state === 'rest' || state === 'prep' || state === 'done') && repeatIdx > 0){
+    const repPart = 'Powtórzenie ' + repeatIdx + (config.repeats > 0 ? ' / ' + config.repeats : '');
+    const stepPart = state !== 'done'
+      ? ` · Krok ${stepIdx + 1} / ${config.steps.length}`
+      : '';
+    els.round.textContent = repPart + stepPart;
+  } else if(initialPrep){
+    els.round.textContent = 'Przygotowanie przed powtórzeniem 1' + (config.repeats > 0 ? ' / ' + config.repeats : '');
+  } else {
+    els.round.innerHTML = '&nbsp;';
+  }
+
+  const nextDesc = getNextDescription();
+  els.nextUp.textContent = nextDesc ? nextDesc : '\u00a0';
+
+  els.bar.style.width = phaseLen ? (100 * (1 - Math.max(0, remainingMs) / phaseLen)) + '%' : '0%';
+  els.start.textContent = running ? 'Pauza' : (state === 'idle' || state === 'done' ? 'Start' : 'Wznów');
+  els.skip.disabled = !(state === 'work' || state === 'rest' || state === 'prep');
+  if(!running && (state === 'idle' || state === 'done')) els.start.disabled = !config.steps.length;
+}
+
+function start(){
+  if(ctx && ctx.state === 'suspended') ctx.resume();
+  if(!config.steps.length) return;
+  unlockVoice();
+
+  if(state === 'idle' || state === 'done'){
+    repeatIdx = 0;
+    stepIdx = 0;
+    state = 'idle';
+    lockConfigUI(true);
+    if(config.prep > 0){
+      initialPrep = true;
+      setPhase('prep', config.prep);
+    } else {
+      advanceStep();
+    }
+  } else {
+    endAt = performance.now() + remainingMs;
+  }
+
+  running = true;
+  requestWake();
+  cancelAnimationFrame(raf);
+  tick();
+}
+
+function pause(){
+  running = false;
+  clearTimeout(labelTimer);
+  if(synth) synth.cancel();
+  cancelAnimationFrame(raf);
+  releaseWake();
+  render();
+}
+
+function skip(){
+  if(!(state === 'work' || state === 'rest' || state === 'prep')) return;
+  advanceStep();
+  if(running){
+    cancelAnimationFrame(raf);
+    tick();
+  }
+}
+
+function reset(){
+  running = false;
+  clearTimeout(labelTimer);
+  if(synth) synth.cancel();
+  cancelAnimationFrame(raf);
+  state = 'idle';
+  initialPrep = false;
+  repeatIdx = 0;
+  stepIdx = 0;
+  phaseLen = 0;
+  remainingMs = 0;
+  document.body.className = 'phase-idle';
+  lockConfigUI(false);
+  releaseWake();
+  highlightActiveStep();
+  render();
+}
+
+function lockConfigUI(locked){
+  els.repeats.disabled = locked;
+  els.prep.disabled = locked;
+  els.addWork.disabled = locked;
+  els.addRest.disabled = locked;
+  els.addBlock.disabled = locked;
+  els.bLabel.disabled = locked;
+  els.bWork.disabled = locked;
+  els.bRest.disabled = locked;
+  els.preset.disabled = locked;
+  els.clearStorage.disabled = locked;
+  els.clear.disabled = locked;
+  els.seqList.querySelectorAll('input,select,button').forEach(el => { el.disabled = locked; });
+}
+
+// --- renderowanie i edycja listy interwałów ---
+function highlightActiveStep(){
+  const rows = els.seqList.querySelectorAll('.step-row');
+  rows.forEach((row, idx) => {
+    const isActive = !initialPrep && (state === 'work' || state === 'rest' || state === 'prep') && idx === stepIdx;
+    row.classList.toggle('active-step', isActive);
+  });
+}
+
+function renderStepsList(){
+  els.stepCount.textContent = config.steps.length;
+  els.seqList.innerHTML = '';
+
+  if(!config.steps.length){
+    els.seqList.innerHTML = '<div class="seq-empty">Brak kroków – dodaj blok powyżej albo użyj „+ Praca” / „+ Przerwa”.</div>';
+  }
+
+  config.steps.forEach((step, idx) => {
+    const row = document.createElement('div');
+    row.className = 'step-row row-' + step.type;
+    row.dataset.id = step.id;
+
+    const useMinutes = step.sec >= 60 && step.sec % 60 === 0;
+    const unitVal = useMinutes ? 'min' : 'sec';
+    const numVal = useMinutes ? step.sec / 60 : step.sec;
+
+    row.innerHTML = `
+      <span class="step-idx">${idx + 1}.</span>
+      <select aria-label="Typ interwału ${idx + 1}" class="step-type">
+        <option value="work" ${step.type === 'work' ? 'selected' : ''}>Praca</option>
+        <option value="rest" ${step.type === 'rest' ? 'selected' : ''}>Przerwa</option>
+        <option value="prep" ${step.type === 'prep' ? 'selected' : ''}>Przygotowanie</option>
+      </select>
+      <input type="text" maxlength="60" class="step-label" placeholder="Nazwa ćwiczenia" aria-label="Nazwa ćwiczenia ${idx + 1}">
+      <div class="dur-wrap">
+        <input type="number" min="1" max="999" value="${numVal}" aria-label="Długość interwału ${idx + 1}" class="step-dur">
+        <select aria-label="Jednostka czasu ${idx + 1}" class="step-unit">
+          <option value="sec" ${unitVal === 'sec' ? 'selected' : ''}>s</option>
+          <option value="min" ${unitVal === 'min' ? 'selected' : ''}>min</option>
+        </select>
+      </div>
+      <div class="step-controls">
+        <button type="button" class="icon-btn move-up" title="W górę" ${idx === 0 ? 'disabled' : ''}>↑</button>
+        <button type="button" class="icon-btn move-down" title="W dół" ${idx === config.steps.length - 1 ? 'disabled' : ''}>↓</button>
+        <button type="button" class="icon-btn del-step" title="Usuń">✕</button>
+      </div>
+    `;
+
+    const typeSel = row.querySelector('.step-type');
+    const durInp = row.querySelector('.step-dur');
+    const unitSel = row.querySelector('.step-unit');
+    const labelInp = row.querySelector('.step-label');
+    labelInp.value = step.label || ''; // przez .value, nie innerHTML – bezpieczne dla dowolnego tekstu
+
+    labelInp.addEventListener('input', () => {
+      step.label = cleanLabel(labelInp.value);
+      saveConfig();
+      render();
+    });
+
+    const updateDuration = () => {
+      const rawNum = Math.max(1, parseInt(durInp.value, 10) || 1);
+      const mult = unitSel.value === 'min' ? 60 : 1;
+      step.sec = Math.min(86400, rawNum * mult);
+      saveConfig();
+      if(state === 'idle') render();
+    };
+
+    typeSel.addEventListener('change', () => {
+      step.type = typeSel.value;
+      row.className = 'step-row row-' + step.type;
+      highlightActiveStep();
+      saveConfig();
+      if(state === 'idle') render();
+    });
+
+    durInp.addEventListener('input', updateDuration);
+    unitSel.addEventListener('change', updateDuration);
+
+    row.querySelector('.move-up').addEventListener('click', () => {
+      if(idx <= 0) return;
+      const [item] = config.steps.splice(idx, 1);
+      config.steps.splice(idx - 1, 0, item);
+      saveConfig();
+      renderStepsList();
+      if(state === 'idle') render();
+    });
+
+    row.querySelector('.move-down').addEventListener('click', () => {
+      if(idx >= config.steps.length - 1) return;
+      const [item] = config.steps.splice(idx, 1);
+      config.steps.splice(idx + 1, 0, item);
+      saveConfig();
+      renderStepsList();
+      if(state === 'idle') render();
+    });
+
+    row.querySelector('.del-step').addEventListener('click', () => {
+      config.steps.splice(idx, 1);
+      saveConfig();
+      renderStepsList();
+      if(state === 'idle') render();
+    });
+
+    els.seqList.appendChild(row);
+  });
+
+  lockConfigUI(running || state === 'work' || state === 'rest' || state === 'prep');
+  highlightActiveStep();
+}
+
+// ekran nie gaśnie w trakcie
+async function requestWake(){
+  try{
+    if('wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen');
+  }catch(e){}
+}
+function releaseWake(){
+  try{ wakeLock && wakeLock.release(); }catch(e){}
+  wakeLock = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible' && running){ wakeLock = null; requestWake(); }
+});
+
+// --- zdarzenia ---
+els.start.onclick = () => running ? pause() : start();
+els.skip.onclick = skip;
+els.reset.onclick = reset;
+els.clear.onclick = () => {
+  if(!config.steps.length) return;
+  if(!confirm('Usunąć wszystkie kroki treningu (' + config.steps.length + ')?')) return;
+  reset();
+  config.steps = [];
+  saveConfig();
+  renderStepsList();
+  render();
+};
+
+els.repeats.addEventListener('input', () => {
+  config.repeats = Math.max(0, parseInt(els.repeats.value, 10) || 0);
+  saveConfig();
+  render();
+});
+
+els.prep.addEventListener('input', () => {
+  config.prep = Math.max(0, parseInt(els.prep.value, 10) || 0);
+  saveConfig();
+  if(state === 'idle') render();
+});
+
+els.sound.addEventListener('change', () => {
+  config.sound = els.sound.checked;
+  saveConfig();
+});
+
+els.countdown.addEventListener('change', () => {
+  config.countdown = els.countdown.checked;
+  saveConfig();
+});
+
+els.voice.addEventListener('change', () => {
+  config.voice = els.voice.checked;
+  saveConfig();
+  if(!config.voice && synth) synth.cancel();
+});
+
+els.addWork.addEventListener('click', () => {
+  config.steps.push({ id: uid(), type: 'work', sec: 30 });
+  saveConfig();
+  renderStepsList();
+  if(state === 'idle') render();
+});
+
+els.addRest.addEventListener('click', () => {
+  config.steps.push({ id: uid(), type: 'rest', sec: 20 });
+  saveConfig();
+  renderStepsList();
+  if(state === 'idle') render();
+});
+
+// --- blok praca + przerwa ---
+function readBuilder(){
+  config.builder = sanitizeBuilder({
+    label: els.bLabel.value,
+    work: els.bWork.value,
+    rest: els.bRest.value === '' ? 30 : els.bRest.value
+  });
+  saveConfig();
+}
+[els.bLabel, els.bWork, els.bRest].forEach(el => el.addEventListener('input', readBuilder));
+[els.bWork, els.bRest].forEach(el => el.addEventListener('change', () => {
+  els.bWork.value = config.builder.work;
+  els.bRest.value = config.builder.rest;
+}));
+
+let blockStreak = 0, blockStreakKey = '', blockNoteTimer = null;
+els.addBlock.addEventListener('click', () => {
+  readBuilder();
+  const b = config.builder;
+  config.steps.push({ id: uid(), type: 'work', sec: b.work, label: b.label });
+  if(b.rest > 0) config.steps.push({ id: uid(), type: 'rest', sec: b.rest, label: '' });
+  saveConfig();
+  renderStepsList();
+  els.seqList.scrollTop = els.seqList.scrollHeight;
+  if(state === 'idle') render();
+
+  const key = b.label + '|' + b.work + '|' + b.rest;
+  blockStreak = key === blockStreakKey ? blockStreak + 1 : 1;
+  blockStreakKey = key;
+  els.blockNote.textContent = `Dodano: ${b.label ? b.label + ' · ' : ''}${b.work} s` +
+    (b.rest > 0 ? ` + ${b.rest} s przerwy` : '') + (blockStreak > 1 ? ` (×${blockStreak})` : '');
+  clearTimeout(blockNoteTimer);
+  blockNoteTimer = setTimeout(() => { blockStreak = 0; blockStreakKey = ''; }, 8000);
+});
+
+els.preset.addEventListener('click', () => {
+  config.steps = cloneSteps(DEFAULT_STEPS);
+  config.repeats = 3;
+  els.repeats.value = 3;
+  saveConfig();
+  renderStepsList();
+  if(state === 'idle') render();
+});
+
+els.clearStorage.addEventListener('click', () => {
+  config = { ...DEFAULT_CONFIG, builder: { ...DEFAULT_CONFIG.builder }, steps: cloneSteps(DEFAULT_STEPS) };
+  saveConfig();
+  syncInputsFromConfig();
+  if(state === 'idle') render();
+});
+
+document.addEventListener('keydown', e => {
+  if(['INPUT','SELECT'].includes(e.target.tagName)) return;
+  if(e.code === 'Space'){ e.preventDefault(); running ? pause() : start(); }
+  if(e.key === 'n' || e.key === 'N') skip();
+  if(e.key === 'r' || e.key === 'R') reset();
+});
+
+syncInputsFromConfig();
+render();
+</script>
+</body>
+</html>
